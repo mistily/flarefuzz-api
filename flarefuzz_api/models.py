@@ -39,10 +39,22 @@ class InventoryResponse(BaseModel):
     metadata: DatasetMetadata
     parameters: list[ParameterInventoryItem]
 
+class DataQualityIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+    data_row_index: int = Field(ge=0)
+    series_identifier: str
+    issue_type: Literal[
+        "missing_value",
+        "invalid_numeric",
+        "non_finite"
+    ]
+    raw_value: str
+    message: str
 class NormalizedCSVResponse(InventoryResponse):
     source_values: list[dict[str, str]]
     si_values: list[dict[str, float | None]]
+    validation_issues: list[DataQualityIssue] = Field(default_factory=list)
 
 
 class GatheredInventory(BaseModel):

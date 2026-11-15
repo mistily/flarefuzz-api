@@ -91,3 +91,100 @@ def test_source_and_si_data_are_both_available():
     response = normalized_csv_response(inventory, data)
     assert response.source_values == [{"flame_diameter#1": "12"}]
     assert response.si_values == [{"flame_diameter#1": pytest.approx(0.012)}]
+def test_missing_measurement_is_reported():
+    inventory, data = inventory_csv(
+        b"Flame diameter (mm)\n\n12\n"
+    )
+    response = normalized_csv_response(inventory, data)
+
+    print("Validation issues:", response.validation_issues)
+
+    assert any(
+        issue.issue_type == "missing_value"
+        for issue in response.validation_issues
+    )
+
+
+def test_invalid_numeric_measurement_is_reported():
+    inventory, data = inventory_csv(
+        b"Flame diameter (mm)\nabc\n"
+    )
+
+    response = normalized_csv_response(inventory, data)
+
+    assert response.validation_issues[0].issue_type == "invalid_numeric"
+
+
+def test_infinite_measurement_is_reported():
+    inventory, data = inventory_csv(
+        b"Flame diameter (mm)\ninf\n"
+    )
+
+    response = normalized_csv_response(inventory, data)
+
+    assert response.validation_issues[0].issue_type == "non_finite"
+
+
+def test_valid_measurement_has_no_validation_issues():
+    inventory, data = inventory_csv(
+        b"Flame diameter (mm)\n12\n"
+    )
+
+    response = normalized_csv_response(inventory, data)
+
+    assert response.validation_issues == []
+def test_multilevel_header_when_first_row_has_recognized_parameter():
+    csv = (
+        "Flame diameter (mm),Cool flame diameter (mm)\n"
+        "(mm),(mm)\n"
+        "12,3\n"
+    ).encode()
+
+    inventory, data = inventory_csv(csv)
+
+    assert len(inventory.parameters) == 2
+    assert inventory.parameters[0].canonical_name == "flame_diameter"
+    assert inventory.parameters[1].canonical_name == "cool_flame_diameter"
+    assert len(data) == 1
+    assert data.iloc[0, 0] == "12"
+
+
+def test_explicit_header_rows_override_is_preserved():
+    csv = (
+        "Flame diameter (mm)\n"
+        "(mm)\n"
+        "12\n"
+    ).encode()
+
+    inventory, data = inventory_csv(csv, header_rows=1)
+
+    assert len(data) == 2
+    assert data.iloc[0, 0] == "(mm)"
+
+
+def test_categorical_metadata_is_not_numeric_validated():
+    csv = (
+        "Fuel,Flame diameter (mm)\n"
+        "Methanol,12\n"
+    ).encode()
+
+    inventory, data = inventory_csv(csv)
+    response = normalized_csv_response(inventory, data)
+
+    assert not any(
+        issue.series_identifier.startswith("fuel")
+        for issue in response.validation_issues
+    )
+    assert response.validation_issues == []
+
+
+def test_empty_separator_column_is_not_reported_as_missing():
+    csv = (
+        "Fuel,,Flame diameter (mm)\n"
+        "Methanol,,12\n"
+    ).encode()
+
+    inventory, data = inventory_csv(csv)
+    response = normalized_csv_response(inventory, data)
+
+    assert response.validation_issues == []
