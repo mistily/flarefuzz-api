@@ -20,7 +20,8 @@ from flarefuzz_api.parsers import (
 )
 
 SEARCH_URL = "https://psi.nasa.gov/geode-py/ws/repo/search"
-INVESTIGATION_DATA_URL = "https://psi.nasa.gov/physci/repo/data/investigations"
+INVESTIGATION_DATA_URL = "https://psi.nasa.gov/geode-py/ws/repo/investigations"
+INVESTIGATION_PAGE_URL = "https://psi.nasa.gov/physci/repo/data/investigations"
 FILES_URL = "https://psi.nasa.gov/geode-py/ws/files/v2"
 STUDIES_URL = "https://psi.nasa.gov/geode-py/ws/studies"
 MAX_PAGES = 5
@@ -216,12 +217,13 @@ async def gather_csv_inventories(
                     continue
                 visited_studies.add(study_id)
                 title = source_doc.get("Title")
-                version = _study_version(source_doc)
-                if version is None:
-                    try:
-                        version = _study_version(await _get_investigation(client, study_id))
-                    except (httpx.HTTPError, GathererError) as exc:
-                        errors.append(f"{study_id}: investigation metadata: {exc}")
+                try:
+                    detail = await _get_investigation(client, study_id)
+                    version = _study_version(detail)
+                    title = detail.get("title") or title
+                except (httpx.HTTPError, GathererError) as exc:
+                    errors.append(f"{study_id}: investigation metadata: {exc}")
+                    version = _study_version(source_doc)
                 if version is None:
                     errors.append(f"{study_id}: study version not supplied by NASA metadata")
                     continue
