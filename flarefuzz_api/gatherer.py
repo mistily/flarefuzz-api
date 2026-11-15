@@ -140,6 +140,35 @@ async def _download_csv(
     return str(response.url), response.content
 
 
+
+def _links(value: object, base_url: str) -> list[str]:
+    """Extract NASA PSI links from investigation metadata for the browse API.
+
+    Retained for frontend compatibility; CSV ingestion uses /files/v2 instead.
+    """
+    from urllib.parse import urljoin, urlparse
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def visit(item: object) -> None:
+        if isinstance(item, Mapping):
+            for key, child in item.items():
+                if key in ("href", "url", "downloadUrl", "download_url") and isinstance(child, str):
+                    candidate = urljoin(base_url, child)
+                    parsed = urlparse(candidate)
+                    if parsed.scheme == "https" and parsed.hostname == "psi.nasa.gov" and candidate not in seen:
+                        seen.add(candidate)
+                        found.append(candidate)
+                else:
+                    visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+
+    visit(value)
+    return found
+
 async def gather_csv_inventories(
     *,
     term: str,
