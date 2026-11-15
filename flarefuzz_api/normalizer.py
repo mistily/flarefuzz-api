@@ -51,6 +51,8 @@ _SI_UNITS = {
     "dimensionless": "dimensionless",
 }
 
+METADATA = re.compile(r"^(?:fuel|reference|data\s*file|experiment|simulation|run|sample|oxidizer|notes?)$", re.I)
+
 _ALIASES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "cool_flame_diameter",
