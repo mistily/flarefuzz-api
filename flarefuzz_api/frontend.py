@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from flarefuzz_api.gatherer import INVESTIGATION_DATA_URL, SEARCH_URL, _links
+from flarefuzz_api.gatherer import INVESTIGATION_DATA_URL, SEARCH_URL
 from flarefuzz_api.models import DatasetMetadata, NormalizedCSVResponse, Provenance
 from flarefuzz_api.parsers import (
     DEFAULT_PARSER_REGISTRY,
@@ -94,25 +94,52 @@ async def browse_investigations(
 
 @router.get("/investigations/{investigation_id}")
 async def get_investigation(investigation_id: str) -> dict[str, object]:
-    """Return NASA PSI investigation metadata and linked NASA source files."""
-    url = f"{INVESTIGATION_DATA_URL}/{quote(investigation_id, safe='')}"
+    """Return canonical PSI JSON metadata and its directly referenced files."""
+    import re
+    from flarefuzz_api.gatherer import INVESTIGATION_PAGE_URL, _get_investigation
+
+    if not re.fullmatch(r"PSI-[0-9]+", investigation_id, re.IGNORECASE):
+        raise HTTPException(status_code=422, detail="Invalid PSI investigation ID.")
+    investigation_id = investigation_id.upper()
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=False
         ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            metadata = response.json()
+            metadata = dict(await _get_investigation(client, investigation_id))
     except httpx.HTTPStatusError as exc:
         status = 404 if exc.response.status_code == 404 else 502
         raise HTTPException(status_code=status, detail="NASA PSI investigation lookup failed.") from exc
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=f"NASA PSI request failed: {exc}") from exc
 
-    if not isinstance(metadata, dict):
-        raise HTTPException(status_code=502, detail="NASA PSI returned an unexpected response.")
-    source_files = _links(metadata, url)
-    return {"id": investigation_id, "metadata": metadata, "source_files": source_files}
+    accession = metadata.get("accession")
+    if accession != investigation_id:
+        raise HTTPException(status_code=502, detail="NASA PSI returned a different investigation.")
+    source_files = []
+    for category in ("experimentalTable", "images", "modified"):
+        entries = metadata.get(category)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("restricted") or entry.get("visible") is False:
+                continue
+            source_files.append({
+                "category": category,
+                "file_name": entry.get("file_name"),
+                "file_version": entry.get("version"),
+                "remote_url": entry.get("remote_url"),
+                "s3_path": entry.get("s3_path"),
+            })
+    return {
+        "id": investigation_id,
+        "title": metadata.get("title"),
+        "description": metadata.get("description") or metadata.get("approach"),
+        "metadata": metadata,
+        "source_files": source_files,
+        "page_url": f"{INVESTIGATION_PAGE_URL}/{quote(investigation_id, safe='')}",
+    }
 
 
 @router.post("/datasets/ingest", status_code=201)
