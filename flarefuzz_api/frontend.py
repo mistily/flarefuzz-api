@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from flarefuzz_api.gatherer import INVESTIGATION_DATA_URL, SEARCH_URL, _links
+from flarefuzz_api.gatherer import INVESTIGATION_DATA_URL, SEARCH_URL
 from flarefuzz_api.models import DatasetMetadata, NormalizedCSVResponse, Provenance
 from flarefuzz_api.parsers import (
     DEFAULT_PARSER_REGISTRY,
@@ -94,25 +94,49 @@ async def browse_investigations(
 
 @router.get("/investigations/{investigation_id}")
 async def get_investigation(investigation_id: str) -> dict[str, object]:
-    """Return NASA PSI investigation metadata and linked NASA source files."""
-    url = f"{INVESTIGATION_DATA_URL}/{quote(investigation_id, safe='')}"
+    """Find the exact investigation in NASA PSI search JSON.
+
+    The /physci/repo/data/investigations/{id} route serves the website,
+    not a documented JSON API. Never attempt to parse its HTML as JSON.
+    """
+    import re
+
+    if not re.fullmatch(r"PSI-[0-9]+", investigation_id, re.IGNORECASE):
+        raise HTTPException(status_code=422, detail="Invalid PSI investigation ID.")
+    investigation_id = investigation_id.upper()
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=False
         ) as client:
-            response = await client.get(url)
+            response = await client.get(
+                SEARCH_URL,
+                params={
+                    "term": investigation_id,
+                    "source": "psi",
+                    "type": "investigation",
+                    "from": 0,
+                    "size": 100,
+                },
+            )
             response.raise_for_status()
-            metadata = response.json()
-    except httpx.HTTPStatusError as exc:
-        status = 404 if exc.response.status_code == 404 else 502
-        raise HTTPException(status_code=status, detail="NASA PSI investigation lookup failed.") from exc
+            payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"NASA PSI request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"NASA PSI search failed: {exc}") from exc
 
-    if not isinstance(metadata, dict):
-        raise HTTPException(status_code=502, detail="NASA PSI returned an unexpected response.")
-    source_files = _links(metadata, url)
-    return {"id": investigation_id, "metadata": metadata, "source_files": source_files}
+    if not isinstance(payload, dict) or not isinstance(payload.get("hits"), dict):
+        raise HTTPException(status_code=502, detail="NASA PSI returned an unexpected search response.")
+    entries = payload["hits"].get("hits", [])
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=502, detail="NASA PSI returned invalid search hits.")
+    for hit in entries:
+        item = _psi_record(hit)
+        if item and item["id"].upper() == investigation_id:
+            return {
+                **item,
+                "source_files": [],
+                "page_url": f"{INVESTIGATION_DATA_URL}/{quote(investigation_id, safe='')}",
+            }
+    raise HTTPException(status_code=404, detail=f"Investigation {investigation_id} not found in NASA PSI search.")
 
 
 @router.post("/datasets/ingest", status_code=201)
