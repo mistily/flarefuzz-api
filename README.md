@@ -39,6 +39,11 @@ File ingestion uses a Strategy/Registry boundary (`FileParser` and
 return HTTP 415. A future format can add its own parser strategy and register
 it without changing the CSV normalizer or gathering logic.
 
+
+Contributors:
+@mistily https://github.com/mistily/
+@Akshaya https://github.com/Akshaya-125
+
 ## Tests
 
 ```powershell
