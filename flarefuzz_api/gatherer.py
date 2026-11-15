@@ -108,7 +108,8 @@ async def gather_csv_inventories(
             raise GathererError("NASA PSI search response was not a JSON object.")
         results: list[GatheredInventory] = []
 
-        for record in _records(search_json):
+        search_records = _records(search_json)
+        for record in search_records:
             source_doc = record.get("_source")
             source_doc = source_doc if isinstance(source_doc, Mapping) else {}
             project_id = str(source_doc.get("Accession") or record.get("_id") or "")
@@ -127,8 +128,12 @@ async def gather_csv_inventories(
                 if resource_url in seen:
                     continue
                 seen.add(resource_url)
-                resource = await client.get(resource_url)
-                resource.raise_for_status()
+                try:
+                    resource = await client.get(resource_url)
+                    resource.raise_for_status()
+                except httpx.HTTPError:
+                    # A broken resource link must not abort discovery of other files.
+                    continue
                 content_type = resource.headers.get("content-type", "").lower()
                 disposition = resource.headers.get("content-disposition", "").lower()
                 disposition_name = re.search(r'filename="?([^";]+)', disposition)
@@ -178,7 +183,7 @@ async def gather_csv_inventories(
                         return results
         if not results:
             raise GathererError(
-                f"NASA PSI returned {len(_records(search_json))} search records but no accessible "
+                f"NASA PSI returned {len(search_records)} search records but no accessible "
                 "NASA-hosted CSV resources were discovered."
             )
     return results
