@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from httpx import HTTPError
 from pydantic import ValidationError
 
+from flarefuzz_api.frontend import router as frontend_router
 from flarefuzz_api.gatherer import GathererError, gather_csv_inventories
 from flarefuzz_api.models import (
     DatasetMetadata,
@@ -17,7 +18,8 @@ from flarefuzz_api.parsers import (
     UnsupportedFileTypeError,
 )
 
-app = FastAPI(title="NASA PSI Combustion CSV Normalizer", version="0.1.0")
+app = FastAPI(title="NASA PSI Combustion CSV Normalizer", version="0.2.0")
+app.include_router(frontend_router)
 
 
 @app.get("/health")
