@@ -2,7 +2,8 @@
 
 A FastAPI service for conservatively interpreting and inventorying NASA PSI
 combustion CSV headers, with frontend APIs for browsing investigations,
-normalizing datasets, descriptive model fitting, and evidence-grounded answers.
+normalizing datasets, descriptive model fitting, evidence-grounded answers, and
+SI-based transport-property calculations.
 
 ## Run locally
 
@@ -30,6 +31,14 @@ python -m venv .venv
   to complete finite pairs. The run response includes predictions, residuals,
   residual standard error, and an approximate 95% uncertainty interval.
   `GET /api/models/runs/{id}` retrieves that result.
+- `POST /api/calculations/dimensionless` is the deterministic, SI-only
+  dimensionless-analysis stage between normalized inputs and future simulations.
+  It calculates Reynolds (`Re`), Prandtl (`Pr`), Schmidt (`Sc`), and Lewis
+  (`Le`) numbers. Every input includes source/reference provenance; results
+  include equations, dimensionless units, input lineage, assumptions, and a
+  formula-set version. `GET /api/calculations/dimensionless/formulas` lists the
+  required fields and formulas. The API requires explicit SI-valued inputs and
+  does not infer transport properties from arbitrary CSV headers.
 - `POST /api/questions` accepts `{ "dataset_id": "...", "question": "..." }`.
   The MVP returns descriptive statistics only when the question names a series;
   otherwise it abstains and lists available series. It does not generate
