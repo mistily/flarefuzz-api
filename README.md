@@ -2,8 +2,8 @@
 
 A FastAPI service for conservatively interpreting and inventorying NASA PSI
 combustion CSV headers, with frontend APIs for browsing investigations,
-normalizing datasets, descriptive model fitting, evidence-grounded answers, and
-SI-based transport-property calculations.
+normalizing datasets, descriptive model fitting, evidence-grounded answers, SI-based
+transport-property calculations, and an illustrative controlled-flame envelope model.
 
 ## Run locally
 
@@ -39,10 +39,17 @@ python -m venv .venv
   formula-set version. `GET /api/calculations/dimensionless/formulas` lists the
   required fields and formulas. The API requires explicit SI-valued inputs and
   does not infer transport properties from arbitrary CSV headers.
-- `POST /api/questions` accepts `{ "dataset_id": "...", "question": "..." }`.
-  The MVP returns descriptive statistics only when the question names a series;
-  otherwise it abstains and lists available series. It does not generate
-  literature-backed claims or infer causation.
+- `POST /api/simulations/spherical-droplet-flame` returns a time-indexed,
+  spherical flame-envelope projection from a detected droplet size through the
+  model's predicted remaining droplet-burnout time. The first version uses the
+  D-squared law and an explicitly supplied constant flame/droplet diameter
+  ratio. It requires timezone-aware detection time, SI measurements, fixed
+  ambient temperature/pressure/oxygen/velocity, and provenance for every input.
+  The environmental values are recorded as fixed context; this simple model
+  does not use them to infer combustion parameters. Results include envelope
+  diameter, radius, volume, surface area, formulas, assumptions, and lineage.
+  Burnout is only an endpoint proxy, not a validated flame-extinction
+  prediction, and detection time does not reconstruct pre-detection history.
 
 Dataset and model-run records are currently held in process memory. They are
 lost on restart and are not shared across multiple workers; persistent storage

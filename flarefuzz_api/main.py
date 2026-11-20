@@ -18,10 +18,12 @@ from flarefuzz_api.parsers import (
     ParserContext,
     UnsupportedFileTypeError,
 )
+from flarefuzz_api.simulations import router as simulations_router
 
-app = FastAPI(title="NASA PSI Combustion CSV Normalizer", version="0.3.0")
+app = FastAPI(title="NASA PSI Combustion CSV Normalizer", version="0.4.0")
 app.include_router(frontend_router)
 app.include_router(calculations_router)
+app.include_router(simulations_router)
 
 
 @app.get("/health")
