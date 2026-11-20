@@ -31,14 +31,12 @@ python -m venv .venv
   to complete finite pairs. The run response includes predictions, residuals,
   residual standard error, and an approximate 95% uncertainty interval.
   `GET /api/models/runs/{id}` retrieves that result.
-- `POST /api/calculations/dimensionless` is the deterministic, SI-only
-  dimensionless-analysis stage between normalized inputs and future simulations.
-  It calculates Reynolds (`Re`), Prandtl (`Pr`), Schmidt (`Sc`), and Lewis
-  (`Le`) numbers. Every input includes source/reference provenance; results
-  include equations, dimensionless units, input lineage, assumptions, and a
-  formula-set version. `GET /api/calculations/dimensionless/formulas` lists the
-  required fields and formulas. The API requires explicit SI-valued inputs and
-  does not infer transport properties from arbitrary CSV headers.
+- `POST /api/calculations/dimensionless` calculates Reynolds (`Re`), Prandtl
+  (`Pr`), Schmidt (`Sc`), and Lewis (`Le`) numbers from explicitly supplied SI
+  inputs. Every input includes source/reference provenance. Results include
+  equations, dimensionless units, input lineage, assumptions, and a formula-set
+  version. The formula catalog is at
+  `GET /api/calculations/dimensionless/formulas`.
 - `POST /api/simulations/spherical-droplet-flame` returns a time-indexed,
   spherical flame-envelope projection from a detected droplet size through the
   model's predicted remaining droplet-burnout time. The first version uses the
@@ -46,10 +44,23 @@ python -m venv .venv
   ratio. It requires timezone-aware detection time, SI measurements, fixed
   ambient temperature/pressure/oxygen/velocity, and provenance for every input.
   The environmental values are recorded as fixed context; this simple model
-  does not use them to infer combustion parameters. Results include envelope
-  diameter, radius, volume, surface area, formulas, assumptions, and lineage.
-  Burnout is only an endpoint proxy, not a validated flame-extinction
-  prediction, and detection time does not reconstruct pre-detection history.
+  does not use them to infer combustion parameters. This is illustrative, not
+  a validated extinction prediction.
+- `GET /api/analysis/methods` lists implemented calculations and clearly marks
+  limited or research-only methods. `POST /api/analysis/kinetics/first-order`
+  evaluates Arrhenius kinetics for a single isothermal irreversible first-order
+  reaction and integrates its concentration ODE with BDF or Radau. It is not a
+  multi-species chemical mechanism or reacting-flow PDE.
+- `POST /api/analysis/extinction/strain-screen` calculates the characteristic
+  estimate `a=U/L`. It only compares against an explicitly supplied,
+  configuration-specific extinction limit; without that limit it abstains.
+  This is screening, not an extinction prediction.
+- `POST /api/analysis/inference/linear-gaussian` computes an exact conjugate
+  Gaussian posterior for regression intercept and slope when observation noise
+  is known. Its posterior applies to that regression model and is not
+  automatically a combustion-physics posterior.
+- Neural operators are research-only and are not implemented: no trained model,
+  validated training set, or inference endpoint is provided.
 
 Dataset and model-run records are currently held in process memory. They are
 lost on restart and are not shared across multiple workers; persistent storage
