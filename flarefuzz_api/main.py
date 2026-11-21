@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, File, Form, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from httpx import HTTPError
 from pydantic import ValidationError
-from starlette.datastructures import UploadFile
 
 from flarefuzz_api.advanced_methods import router as advanced_methods_router
 from flarefuzz_api.calculations import router as calculations_router
