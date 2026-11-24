@@ -1,9 +1,7 @@
 # flarefuzz-api
 
-A FastAPI service for conservatively interpreting and inventorying NASA PSI
-combustion CSV headers, with frontend APIs for browsing investigations,
-normalizing datasets, descriptive model fitting, evidence-grounded answers, SI-based
-transport-property calculations, and an illustrative controlled-flame envelope model.
+FastAPI service for NASA PSI combustion-data discovery, conservative CSV
+normalization, model fitting, and auditable scientific calculations.
 
 ## Run locally
 
@@ -15,77 +13,76 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn flarefuzz_api.main:app --reload
 ```
 
-## Frontend API
+Cantera is optional: install a compatible Cantera 3.x build separately to enable
+the gas-property adapter. It is not required for diameter parsing or the initial
+reduced-order animation.
 
-- `GET /api/investigations?term=combustion&offset=0&limit=20` searches NASA PSI
-  investigations. `GET /api/investigations/{id}` returns the PSI metadata and
-  NASA-hosted source-file links found in that record.
-- `POST /api/datasets/ingest` accepts a CSV upload as multipart `file`; optional
-  fields are `provenance`, `experiment`, `simulation`, and `header_rows`. It
-  returns a dataset `id` for use with the quality and series endpoints.
-- `GET /api/datasets/{id}/quality` returns validation issues and unit mappings.
-  `GET /api/datasets/{id}/series` returns normalized SI values where conversion
-  is supported; unconvertible values are `null`.
-- `POST /api/models/fit` accepts `{ "dataset_id": "...", "model": "linear",
-  "x_series": "...", "y_series": "..." }` and fits ordinary least squares
-  to complete finite pairs. The run response includes predictions, residuals,
-  residual standard error, and an approximate 95% uncertainty interval.
-  `GET /api/models/runs/{id}` retrieves that result.
-- `POST /api/calculations/dimensionless` calculates Reynolds (`Re`), Prandtl
-  (`Pr`), Schmidt (`Sc`), and Lewis (`Le`) numbers from explicitly supplied SI
-  inputs. Every input includes source/reference provenance. Results include
-  equations, dimensionless units, input lineage, assumptions, and a formula-set
-  version. The formula catalog is at
-  `GET /api/calculations/dimensionless/formulas`.
-- `POST /api/simulations/spherical-droplet-flame` returns a time-indexed,
-  spherical flame-envelope projection from a detected droplet size through the
-  model's predicted remaining droplet-burnout time. The first version uses the
-  D-squared law and an explicitly supplied constant flame/droplet diameter
-  ratio. It requires timezone-aware detection time, SI measurements, fixed
-  ambient temperature/pressure/oxygen/velocity, and provenance for every input.
-  The environmental values are recorded as fixed context; this simple model
-  does not use them to infer combustion parameters. This is illustrative, not
-  a validated extinction prediction.
-- `GET /api/analysis/methods` lists implemented calculations and clearly marks
-  limited or research-only methods. `POST /api/analysis/kinetics/first-order`
-  evaluates Arrhenius kinetics for a single isothermal irreversible first-order
-  reaction and integrates its concentration ODE with BDF or Radau. It is not a
-  multi-species chemical mechanism or reacting-flow PDE.
-- `POST /api/analysis/extinction/strain-screen` calculates the characteristic
-  estimate `a=U/L`. It only compares against an explicitly supplied,
-  configuration-specific extinction limit; without that limit it abstains.
-  This is screening, not an extinction prediction.
-- `POST /api/analysis/inference/linear-gaussian` computes an exact conjugate
-  Gaussian posterior for regression intercept and slope when observation noise
-  is known. Its posterior applies to that regression model and is not
-  automatically a combustion-physics posterior.
-- Neural operators are research-only and are not implemented: no trained model,
-  validated training set, or inference endpoint is provided.
+## MVP 1.0 diameter simulation workflow
 
-Dataset and model-run records are currently held in process memory. They are
-lost on restart and are not shared across multiple workers; persistent storage
-is needed for production deployment. NASA PSI endpoints are accessed without
-following redirects. The legacy `POST /api/v1/normalize` and
-`GET /api/v1/search` routes remain available.
+1. `POST /api/datasets/diameter/ingest` accepts a CSV upload. Headers must
+   identify time and flame diameter and include supported units, such as
+   `time_s,flame_diameter_mm`. A run/experiment identifier column is preserved;
+   separate runs are never concatenated. The response includes quality status,
+   row count, run IDs, and parse issues. CSVs without compatible time-series
+   measurements are reported as `not_time_series`.
+2. `POST /api/simulations/diameter/fit` takes `dataset_id`, one `experiment_id`,
+   and optional prediction settings. Robust SciPy least-squares fitting uses
+   `D(t)=D0+a*(t-t_origin)+b*(t-t_origin)^2`. Predictions default to the
+   observed time range; extrapolation must be explicitly requested. Responses
+   include observations, predictions, approximate pointwise intervals, source
+   rows, model assumptions, and dataset provenance.
+3. `GET /api/simulations/diameter/runs/{id}` retrieves the calculated trajectory
+   for chart playback. The frontend can animate returned prediction samples;
+   no arbitrary decorative trajectory is generated by the API.
 
-## Normalization behavior
+NASA PSI ingestion is available at `POST /api/datasets/psi/diameter/ingest` with
+`url` and `nasa_accession` query parameters. Downloads are restricted to HTTPS
+NASA hosts, redirects are disabled, and the payload is size-limited. PSI file
+inventories and actual CSV schemas must be inspected before treating a named
+investigation as compatible; filenames alone are not schema evidence.
 
-Unknown units and uncertain parameter identities remain unconverted and are
-marked `manual_review`. `K (mm²/sec)` is provisional D-squared-law burning or
-evaporation data, not thermal diffusivity; cool-flame diameters and the two
-diameter ratios have distinct identities; watts are not treated as radiance;
-and gas-composition basis is not assumed to be mole fraction.
+## Architecture
 
-File ingestion uses a Strategy/Registry boundary (`FileParser` and
-`ParserRegistry`). The MVP registers only `CSVParser`; unsupported formats
-return HTTP 415.
+- `flarefuzz_api/datasets/`: bounded PSI download, explicit diameter parsing,
+  SI conversion, source-row preservation, and time-series quality classification.
+- `flarefuzz_api/simulation/`: isolated mathematical models, robust fitting,
+  prediction uncertainty, request schemas, and optional Cantera property adapter.
+- `flarefuzz_api/routes/`: HTTP boundary for ingestion and model runs.
+- Existing `frontend.py`, `calculations.py`, and `advanced_methods.py` routes
+  remain mounted for compatibility. Scientific calculations are separated from
+  HTTP handling so workers or persistence can be introduced without changing
+  model code.
+
+Cantera supports gas thermochemistry/transport and established reactor/1D flame
+examples; it does not automatically produce arbitrary flame-diameter histories
+or a microgravity/electric-field spherical droplet solution. The optional
+adapter is restricted to curated built-in mechanisms and computes properties
+only. The quadratic baseline is empirical and is not a universal combustion
+law; Cantera properties are not silently coupled to it. Detailed reactive-flow,
+charged-species/electric-field, extinction, and neural-operator models require
+separate physics, validation, and benchmarks.
+
+## Existing APIs
+
+- NASA investigation browse/detail: `GET /api/investigations` and
+  `GET /api/investigations/{id}`.
+- Normalized dataset inventory and series: `POST /api/datasets/ingest`,
+  `GET /api/datasets/{id}/quality`, and `GET /api/datasets/{id}/series`.
+- Descriptive linear model: `POST /api/models/fit`,
+  `GET /api/models/runs/{id}`.
+- Dimensionless Re/Pr/Sc/Le calculation:
+  `POST /api/calculations/dimensionless`.
+- Controlled spherical droplet envelope (illustrative D-squared projection):
+  `POST /api/simulations/spherical-droplet-flame`.
+- Limited kinetics, strain-screening, and Bayesian regression methods are listed
+  at `GET /api/analysis/methods`.
+
+Datasets and runs are currently process-local in-memory demo data; deploy a
+persistent database/object store and isolated worker queue for production.
+Do not use these prototype predictions for fire response or safety decisions.
 
 ## Tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 ```
-
-Contributors:
-@mistily https://github.com/mistily/
-@Akshaya https://github.com/Akshaya-125

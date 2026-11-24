@@ -1,0 +1,9 @@
+"""Synthetic trajectory fixture with explicit SI units."""
+time_s,flame_diameter_mm,experiment_id,measurement_uncertainty_mm
+0,10,run-A,0.2
+1,11,run-A,0.2
+2,13,run-A,0.2
+3,16,run-A,0.2
+0,20,run-B,0.3
+1,19,run-B,0.3
+2,17,run-B,0.3
