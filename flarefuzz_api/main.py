@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from httpx import HTTPError
 from pydantic import ValidationError
 
@@ -16,6 +17,13 @@ from flarefuzz_api.routes.transport import router as transport_router
 from flarefuzz_api.simulations import router as spherical_simulations_router
 
 app = FastAPI(title="NASA PSI Combustion CSV Normalizer", version="1.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://mistily.github.io"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 app.include_router(frontend_router)
 app.include_router(calculations_router)
 app.include_router(advanced_methods_router)
