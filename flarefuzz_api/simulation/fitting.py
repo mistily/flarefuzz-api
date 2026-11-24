@@ -1,4 +1,5 @@
-"""Robust fitting entrypoint, separated from route implementation."""
-from flarefuzz_api.simulation.fitting import fit_quadratic_diameter, predict_quadratic
+"""Compatibility exports for flame-diameter fitting."""
 
-__all__ = ["fit_quadratic_diameter", "predict_quadratic"]
+from . import QuadraticFit, fit_quadratic_diameter, predict_quadratic
+
+__all__ = ["QuadraticFit", "fit_quadratic_diameter", "predict_quadratic"]
