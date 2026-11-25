@@ -5,6 +5,7 @@ import csv
 import io
 from uuid import uuid4
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -14,12 +15,18 @@ from flarefuzz_api.datasets.psi_download import download_psi_resources
 from flarefuzz_api.datasets.quality import classify_diameter_dataset
 from flarefuzz_api.gatherer import (
     GathererError,
-    _download_csv,
     _get_investigation,
     _inventory,
     _study_version,
     _walk_files,
 )
+
+def _public_url(url: str | None) -> str | None:
+    if not url:
+        return url
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 DIAMETER_DATASETS: dict[str, dict[str, object]] = {}
@@ -35,7 +42,7 @@ def _parse_resources(resources: list[dict[str, object]]) -> tuple[dict[str, obje
                            "message": f"{kind} resource is not a supported diameter data table."})
             continue
         try:
-            parsed_resources.append({"filename": resource["filename"], "url": resource["url"],
+            parsed_resources.append({"filename": resource["filename"], "url": _public_url(str(resource["url"])),
                                      "parsed": parse_diameter_resource(resource["content"], resource_format=kind)})
         except DiameterCSVError as exc:
             errors.append({"resource": str(resource["filename"]), "code": exc.code, "message": str(exc)})
@@ -65,7 +72,7 @@ def _parse_resources(resources: list[dict[str, object]]) -> tuple[dict[str, obje
                               "mae_m": sum(abs(value) for value in errors_m) / len(errors_m),
                               "rmse_m": (sum(value * value for value in errors_m) / len(errors_m)) ** 0.5},
                   "issues": [issue for entry in parsed_resources for issue in entry["parsed"].get("issues", [])]}
-    parsed["resources"] = [{"filename": item["filename"], "url": item["url"], "format": item["parsed"]["dataset_category"]}
+    parsed["resources"] = [{"filename": item["filename"], "url": _public_url(str(item["url"])), "format": item["parsed"]["dataset_category"]}
                             for item in parsed_resources]
     return parsed, errors
 
@@ -74,7 +81,7 @@ def _store_dataset(*, filename: str, source_url: str | None, nasa_accession: str
                    resources: list[dict[str, object]]) -> dict[str, object]:
     parsed, resource_issues = _parse_resources(resources)
     dataset_id = str(uuid4())
-    record: dict[str, object] = {"id": dataset_id, "filename": filename, "source_url": source_url,
+    record: dict[str, object] = {"id": dataset_id, "filename": filename, "source_url": _public_url(source_url),
                                 "nasa_accession": nasa_accession, "parsed": parsed,
                                 "dataset_category": parsed["dataset_category"],
                                 "quality": classify_diameter_dataset(parsed), "resource_issues": resource_issues}
@@ -114,7 +121,7 @@ async def ingest_nasa_psi_diameter_resource(url: str = Query(..., min_length=1, 
     """Resolve signed NASA/S3 URLs or JSON manifests, fetch resources, then inspect data columns."""
     try:
         resources = await download_psi_resources(url)
-        return _store_dataset(filename=str(resources[0]["filename"]), source_url=url,
+        return _store_dataset(filename=str(resources[0]["filename"]), source_url=_public_url(url),
                               nasa_accession=nasa_accession, resources=resources)
     except DiameterCSVError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
@@ -185,13 +192,27 @@ async def inspect_psi_117_diameter_candidates() -> dict[str, object]:
                 item["status"] = "restricted"
             else:
                 try:
-                    source_url, content = await _download_csv(client, "PSI-117", version, file)
-                    item["source_url"] = source_url
-                    item["columns"] = next(csv.reader(io.StringIO(content.decode("utf-8-sig"))), [])
-                    parsed = parse_diameter_resource(content, resource_format="csv")
-                    item["status"] = "valid_diameter_series"
-                    item["experiment_ids"] = sorted(parsed["runs"])
-                    item["row_count"] = sum(len(run["time_s"]) for run in parsed["runs"].values())
+                    download_url = f"https://psi.nasa.gov/geode-py/ws/studies/PSI-117/download?file={file['id']}&version=1&studyVersion={version}&redirect=false"
+                    resources = await download_psi_resources(download_url)
+                    tables = [resource for resource in resources if resource["format"] in {"csv", "tsv"}]
+                    if not tables:
+                        raise ValueError("No CSV/TSV data tables resolved.")
+                    resource = tables[0]
+                    content = resource["content"]
+                    item["source_url"] = _public_url(download_url)
+                    item["columns"] = next(csv.reader(io.StringIO(content.decode("utf-8-sig")),
+                                                      delimiter="\\t" if resource["format"] == "tsv" else ","), [])
+                    parsed = parse_diameter_resource(content, resource_format=str(resource["format"]))
+                    category = parsed["dataset_category"]
+                    item["dataset_category"] = category
+                    if category == "diameter_time_series":
+                        item["status"] = "valid_diameter_series"
+                        item["experiment_ids"] = sorted(parsed["runs"])
+                        item["row_count"] = sum(len(run["time_s"]) for run in parsed["runs"].values())
+                    else:
+                        item["status"] = "valid_diameter_comparison"
+                        item["experiment_ids"] = sorted({str(row["experiment_id"]) for row in parsed["comparisons"] if row.get("experiment_id")})
+                        item["row_count"] = len(parsed["comparisons"])
                     item["issues"] = parsed["issues"][:10]
                 except DiameterCSVError as exc:
                     item["status"] = "not_compatible"
