@@ -211,7 +211,16 @@ def parse_diameter_resource(content: bytes, *, resource_format: str = "csv", exp
     has_diameter = _canonical_column(headers, {"flame_diameter", "flame_diameter_m", "diameter", "diameter_m"}) is not None
     if has_time and has_diameter:
         return _parse_time_series(headers, rows, experiment_id)
-    return _parse_comparison(headers, rows)
+    try:
+        return _parse_comparison(headers, rows)
+    except DiameterCSVError as exc:
+        if exc.code != "unsupported_dataset_category":
+            raise
+        from flarefuzz_api.datasets.scientific_parser import parse_scientific_table
+        try:
+            return parse_scientific_table(content, resource_format=resource_format)
+        except (ValueError, UnicodeDecodeError) as parse_exc:
+            raise DiameterCSVError("unsupported_dataset_category", str(parse_exc)) from parse_exc
 
 
 def parse_diameter_csv(content: bytes, *, experiment_id: str | None = None) -> dict[str, Any]:
