@@ -20,6 +20,10 @@ Supported resolved data categories are:
 - `diameter_time_series` for diameter versus elapsed time,
 - `extinction_diameter_comparison` for experimental versus simulated diameters.
 
+`GET /api/datasets/psi/PSI-117/diameter-candidates` inspects up to 30 CSV files
+from the PSI-117 study inventory and reports file status, columns, and validated
+time-series row counts. It is an inspection endpoint; it does not ingest files.
+
 A response for `https://psi-repo-prod.s3.amazonaws.com/psi-data/PSI-117/...`
 should be treated as a resource response, not as column-bearing CSV. The path
 may contain `...` as a placeholder only; it must be replaced by the actual

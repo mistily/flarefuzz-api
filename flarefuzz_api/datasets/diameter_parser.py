@@ -26,9 +26,16 @@ _DIAMETER_FACTORS = {"m": 1.0, "meter": 1.0, "meters": 1.0,
 
 def _header_parts(header: str) -> tuple[str, str | None]:
     match = re.search(r"[\[(]\s*([^\])]+?)\s*[\])]\s*$", header)
-    if not match:
-        return header.strip().casefold(), None
-    return header[:match.start()].strip().casefold(), match.group(1).strip().casefold().replace("μ", "µ")
+    if match:
+        return header[:match.start()].strip().casefold(), match.group(1).strip().casefold().replace("μ", "µ")
+    suffix = re.search(
+        r"_(seconds?|sec|s|milliseconds?|ms|minutes?|min|meters?|m|millimeters?|mm|"
+        r"centimeters?|cm|micrometers?|um|µm)$",
+        header.strip().casefold(),
+    )
+    if suffix:
+        return header[:suffix.start()].strip().casefold(), suffix.group(1).replace("μ", "µ")
+    return header.strip().casefold(), None
 
 
 def _key_and_unit(header: str) -> tuple[str, str | None]:
