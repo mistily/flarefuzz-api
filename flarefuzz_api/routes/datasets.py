@@ -5,7 +5,7 @@ import csv
 import io
 from uuid import uuid4
 from pathlib import PurePosixPath
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -25,7 +25,8 @@ def _public_url(url: str | None) -> str | None:
     if not url:
         return url
     parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    safe_query = urlencode([(k, v) for k, v in parse_qsl(parts.query) if parts.hostname == "psi.nasa.gov" and k in {"file", "version", "studyVersion", "redirect"}])
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, safe_query, ""))
 
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
@@ -201,7 +202,7 @@ async def inspect_psi_117_diameter_candidates() -> dict[str, object]:
                     content = resource["content"]
                     item["source_url"] = _public_url(download_url)
                     item["columns"] = next(csv.reader(io.StringIO(content.decode("utf-8-sig")),
-                                                      delimiter="\\t" if resource["format"] == "tsv" else ","), [])
+                                                      delimiter="\t" if resource["format"] == "tsv" else ","), [])
                     parsed = parse_diameter_resource(content, resource_format=str(resource["format"]))
                     category = parsed["dataset_category"]
                     item["dataset_category"] = category
