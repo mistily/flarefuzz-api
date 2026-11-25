@@ -64,7 +64,7 @@ def _parse_resources(resources: list[dict[str, object]]) -> tuple[dict[str, obje
             issues.extend(entry["parsed"].get("issues", []))
         parsed = {"dataset_category": category, "runs": combined_runs, "issues": issues,
                   "time_unit": "s", "diameter_unit": "m"}
-    else:
+    elif category == "extinction_diameter_comparison":
         comparisons = [item for entry in parsed_resources for item in entry["parsed"]["comparisons"]]
         errors_m = [float(item["error_m"]) for item in comparisons]
         parsed = {"dataset_category": category, "comparisons": comparisons,
@@ -73,6 +73,12 @@ def _parse_resources(resources: list[dict[str, object]]) -> tuple[dict[str, obje
                               "mae_m": sum(abs(value) for value in errors_m) / len(errors_m),
                               "rmse_m": (sum(value * value for value in errors_m) / len(errors_m)) ** 0.5},
                   "issues": [issue for entry in parsed_resources for issue in entry["parsed"].get("issues", [])]}
+    else:
+        parsed = {"dataset_category": category,
+                  "observations": [obs for entry in parsed_resources for obs in entry["parsed"]["observations"]],
+                  "groups": [group for entry in parsed_resources for group in entry["parsed"]["groups"]],
+                  "issues": [issue for entry in parsed_resources for issue in entry["parsed"].get("issues", [])],
+                  "fitting_compatible": False}
     parsed["resources"] = [{"filename": item["filename"], "url": _public_url(str(item["url"])), "format": item["parsed"]["dataset_category"]}
                             for item in parsed_resources]
     return parsed, errors
@@ -90,10 +96,13 @@ def _store_dataset(*, filename: str, source_url: str | None, nasa_accession: str
     if parsed["dataset_category"] == "diameter_time_series":
         row_count = sum(len(run["time_s"]) for run in parsed["runs"].values())
         experiment_ids = sorted(parsed["runs"])
-    else:
+    elif parsed["dataset_category"] == "extinction_diameter_comparison":
         row_count = len(parsed["comparisons"])
         experiment_ids = sorted({item["experiment_id"] for item in parsed["comparisons"] if item["experiment_id"]})
-    return {"id": dataset_id, "filename": filename, "source_url": source_url,
+    else:
+        row_count = len(parsed["observations"])
+        experiment_ids = sorted({str(obs["dimensions"]["group"]) for obs in parsed["observations"] if obs["dimensions"].get("group")})
+    return {"id": dataset_id, "filename": filename, "source_url": _public_url(source_url),
             "nasa_accession": nasa_accession, "dataset_category": parsed["dataset_category"],
             "quality": record["quality"], "experiment_ids": experiment_ids,
             "row_count": row_count, "issues": parsed.get("issues", []), "resource_issues": resource_issues,
@@ -150,8 +159,10 @@ def diameter_dataset_series(dataset_id: str) -> dict[str, object]:
     parsed = record["parsed"]
     if record["dataset_category"] == "diameter_time_series":
         values: object = parsed["runs"]
-    else:
+    elif record["dataset_category"] == "extinction_diameter_comparison":
         values = parsed["comparisons"]
+    else:
+        values = parsed["observations"]
     return {"dataset_id": dataset_id, "dataset_category": record["dataset_category"],
             "units": {"time": "s", "diameter": "m"}, "series": values,
             "metrics": parsed.get("metrics")}
@@ -210,10 +221,14 @@ async def inspect_psi_117_diameter_candidates() -> dict[str, object]:
                         item["status"] = "valid_diameter_series"
                         item["experiment_ids"] = sorted(parsed["runs"])
                         item["row_count"] = sum(len(run["time_s"]) for run in parsed["runs"].values())
-                    else:
+                    elif category == "extinction_diameter_comparison":
                         item["status"] = "valid_diameter_comparison"
                         item["experiment_ids"] = sorted({str(row["experiment_id"]) for row in parsed["comparisons"] if row.get("experiment_id")})
                         item["row_count"] = len(parsed["comparisons"])
+                    else:
+                        item["status"] = "structured_measurements"
+                        item["experiment_ids"] = sorted({str(obs["dimensions"]["group"]) for obs in parsed["observations"] if obs["dimensions"].get("group")})
+                        item["row_count"] = len(parsed["observations"])
                     item["issues"] = parsed["issues"][:10]
                 except DiameterCSVError as exc:
                     item["status"] = "not_compatible"
